@@ -116,6 +116,15 @@ const SCHEMES = {
   growth: ["Large-cap, index and flexi-cap", ["UTI Nifty 50 Index Fund", "HDFC Index Fund – Nifty 50 Plan", "Parag Parikh Flexi Cap Fund", "HDFC Flexi Cap Fund"]],
 };
 
+const GOALS = {
+  education: ["Child's education", "बच्चे की पढ़ाई", 10],
+  marriage: ["Child's marriage", "बच्चे की शादी", 6],
+  house: ["House", "घर", 6],
+  car: ["Car", "गाड़ी", 6],
+  retirement: ["Retirement", "रिटायरमेंट", 6],
+  other: ["Other", "अन्य", 6],
+};
+
 function rupees(v) {
   return "₹" + Math.round(v).toLocaleString("en-IN");
 }
@@ -233,6 +242,11 @@ export default function App() {
   const [rise, setRise] = useState(0);
   const [swpYearsIdx, setSwpYearsIdx] = useState(13);
   const [swpPref, setSwpPref] = useState("balance");
+  const [goal, setGoal] = useState("education");
+  const [goalCost, setGoalCost] = useState("2000000");
+  const [goalYearsIdx, setGoalYearsIdx] = useState(10);
+  const [inflation, setInflation] = useState(10);
+  const [goalSaved, setGoalSaved] = useState("");
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -255,7 +269,7 @@ export default function App() {
     if (id === "home") setScreen("home");
     else if (id === "risk") { if (result) setScreen("result"); else startRisk(); }
     else if (id === "tools") openPlanner();
-    else if (id === "goals") openSoon("Goal Planner");
+    else if (id === "goals") openTool("goal");
     else openSoon("Learn");
   };
 
@@ -278,6 +292,7 @@ export default function App() {
   const activeTab = screen === "home" ? "home"
     : screen === "risk" || screen === "result" ? "risk"
     : screen === "lumpsum" || screen === "sip" || screen === "swp" ? "tools"
+    : screen === "goal" ? "goals"
     : soonName === "Goal Planner" ? "goals" : soonName === "Learn" ? "learn" : "tools";
 
   const header = (title, onBack, right) => (
@@ -441,7 +456,7 @@ export default function App() {
             {tile("Risk Profiler", "रिस्क प्रोफ़ाइल", "gauge", C.violet, startRisk)}
             {tile("SIP Calculator", "SIP कैलकुलेटर", "calc", C.orange, () => openTool("sip"))}
             {tile("SWP Planner", "रिटायरमेंट आय", "rupee", C.mint, () => openTool("swp"))}
-            {tile("Goal Planner", "लक्ष्य योजना", "target", C.pink, () => openSoon("Goal Planner"))}
+            {tile("Goal Planner", "लक्ष्य योजना", "target", C.pink, () => openTool("goal"))}
             {tile("Crash Scenarios", "मार्केट क्रैश", "chart", C.blue, () => openSoon("Crash Scenarios"))}
             {tile("Learn", "सीखिए", "book", C.yellow, () => openSoon("Learn"))}
           </div>
@@ -776,6 +791,77 @@ export default function App() {
             ) : <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Enter the amounts above to see the buckets.</p>}
           </section>
           <Disclaimer text="Illustration using assumed yearly return ranges, withdrawals at the start of each month and yearly rebalancing. Check each scheme's latest factsheet before investing. Not investment advice." />
+        </main>
+      </>
+    );
+  } else if (screen === "goal") {
+    const years = PERIODS[goalYearsIdx];
+    const ms = mixSection(years);
+    const base = scenarios(ms.mix);
+    const cost = Math.max(0, Number(goalCost) || 0);
+    const saved = Math.max(0, Number(goalSaved) || 0);
+    const future = cost * Math.pow(1 + inflation / 100, years);
+    const rows = base.map((x) => {
+      const savedLater = saved * Math.pow(1 + x.r / 100, years);
+      const gap = Math.max(0, future - savedLater);
+      return { ...x, gap, sip: gap / sipFuture(1, x.r, years, 0).value, lump: gap / Math.pow(1 + x.r / 100, years) };
+    });
+    const avg = rows[1];
+    const weak = rows[0];
+    const result2 = (title, big, small, col) => (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 14px", borderRadius: 16, background: col }}>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
+        <span style={{ fontFamily: DISP, fontSize: 24, fontWeight: 800 }}>{big}</span>
+        <span style={{ fontSize: 12 }}>{small}</span>
+      </div>
+    );
+    body = (
+      <>
+        {header("Goal Planner", () => setScreen("home"), <span />)}
+        <main style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, padding: "8px 20px 16px" }}>
+          {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>अपने लक्ष्य के लिए कितना और कैसे बचाएँ, समझिए</span>}
+          <section style={card}>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Your goal</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {Object.entries(GOALS).map(([k, [en, hi, inf]]) => chip(showHindi ? `${en} · ${hi}` : en, goal === k, () => { setGoal(k); setInflation(inf); }, C.pink))}
+            </div>
+            {goal === "retirement" && (
+              <p style={{ margin: 0, padding: "10px 12px", borderRadius: 14, background: C.soft, fontSize: 13, lineHeight: 1.5 }}>
+                Not sure how much you need for retirement? Use the SWP Planner's "I need an income" option first, then enter that amount here.
+              </p>
+            )}
+            <label htmlFor="gcost" style={{ fontSize: 15, fontWeight: 700 }}>What it costs today (₹)</label>
+            <input id="gcost" type="number" inputMode="numeric" min="0" value={goalCost} onChange={(e) => setGoalCost(e.target.value)} style={inputStyle} />
+            <span style={{ fontSize: 13, color: C.muted }}>{cost > 0 ? rupees(cost) : "Enter an amount"}</span>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Years to go</span>
+            {periodStepper(goalYearsIdx, setGoalYearsIdx)}
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Yearly rise in cost (inflation)</span>
+            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>महँगाई हर साल कितनी बढ़ेगी</span>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {[4, 6, 8, 10, 12].map((v) => chip(`${v}%`, inflation === v, () => setInflation(v), C.orange))}
+            </div>
+            <label htmlFor="gsaved" style={{ fontSize: 15, fontWeight: 700 }}>Already saved for this goal (optional)</label>
+            <input id="gsaved" type="number" inputMode="numeric" min="0" placeholder="e.g. 200000" value={goalSaved} onChange={(e) => setGoalSaved(e.target.value)} style={inputStyle} />
+            {profileChips()}
+          </section>
+          {ms.node}
+          <section style={card}>
+            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>What you will need</h2>
+            {result2(`Cost after ${periodLabel(years)}`, cost > 0 ? rupees(future) : "—", cost > 0 ? `Today's ${rupees(cost)}, rising ${inflation}% a year` : "Enter today's cost", C.yellow)}
+            {!ms.valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
+            {ms.valid && cost > 0 && avg.gap === 0 && (
+              <p style={{ margin: 0, padding: "12px 14px", borderRadius: 16, background: C.mint, fontSize: 14, fontWeight: 700 }}>Your savings could already cover this goal at average returns.</p>
+            )}
+            {ms.valid && cost > 0 && avg.gap > 0 && (
+              <>
+                {result2("Monthly SIP needed", rupees(avg.sip), `At average returns (about ${avg.r.toFixed(1)}% a year). If markets are weak: ${rupees(weak.sip)} a month`, C.mint)}
+                <span style={{ alignSelf: "center", fontSize: 13, fontWeight: 700, color: C.muted }}>or</span>
+                {result2("Lump sum needed today", rupees(avg.lump), `At average returns. If markets are weak: ${rupees(weak.lump)}`, C.blue)}
+                {saved > 0 && <span style={{ fontSize: 13, color: C.muted }}>This already counts your {rupees(saved)} saved, growing at the same returns.</span>}
+              </>
+            )}
+          </section>
+          <Disclaimer text="Illustration using assumed yearly return ranges, assumed inflation, monthly investing at the start of each month and yearly rebalancing. Past returns do not guarantee future returns. Not investment advice." />
         </main>
       </>
     );
