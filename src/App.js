@@ -183,6 +183,7 @@ export default function App() {
   const [sipPeriodIdx, setSipPeriodIdx] = useState(9);
   const [stepUp, setStepUp] = useState(0);
   const [sipTarget, setSipTarget] = useState("");
+  const [sipMode, setSipMode] = useState("amount");
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -538,26 +539,47 @@ export default function App() {
       </>
     );
   } else if (screen === "sip") {
-    const monthly = Math.max(0, Number(sipAmount) || 0);
     const years = PERIODS[sipPeriodIdx];
     const ms = mixSection(years);
+    const base = scenarios(ms.mix);
+    const isTarget = sipMode === "target";
+    const tgt = Math.max(0, Number(sipTarget) || 0);
+    const perRupee = (r) => sipFuture(1, r, years, stepUp).value;
+    const monthly = isTarget
+      ? (ms.valid && tgt > 0 ? Math.round(tgt / perRupee(base[1].r)) : 0)
+      : Math.max(0, Number(sipAmount) || 0);
     const invested = sipFuture(monthly, 0, years, stepUp).invested;
-    const scen = scenarios(ms.mix).map((x) => ({ ...x, value: sipFuture(monthly, x.r, years, stepUp).value }));
-    const tgt = Number(sipTarget) || 0;
-    let need = null;
-    if (ms.valid && tgt > 0) {
-      const perRupee = (r) => sipFuture(1, r, years, stepUp).value;
-      need = { avg: tgt / perRupee(scen[1].r), weak: tgt / perRupee(scen[0].r) };
-    }
+    const scen = base.map((x) => ({ ...x, value: sipFuture(monthly, x.r, years, stepUp).value }));
     body = (
       <>
         {header("SIP Calculator", () => setScreen("home"), <span />)}
         <main style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, padding: "8px 20px 16px" }}>
           {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>हर महीने निवेश से कितना बनेगा, समझिए</span>}
           <section style={card}>
-            <label htmlFor="sipamt" style={{ fontSize: 15, fontWeight: 700 }}>Monthly SIP (₹)</label>
-            <input id="sipamt" type="number" inputMode="numeric" min="0" value={sipAmount} onChange={(e) => setSipAmount(e.target.value)} style={inputStyle} />
-            <span style={{ fontSize: 13, color: C.muted }}>{monthly > 0 ? `${rupees(monthly)} every month` : "Enter an amount"}</span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {chip("I know my SIP", !isTarget, () => setSipMode("amount"), C.orange)}
+              {chip("I have a target", isTarget, () => setSipMode("target"), C.mint)}
+            </div>
+            {!isTarget && (
+              <>
+                <label htmlFor="sipamt" style={{ fontSize: 15, fontWeight: 700 }}>Monthly SIP (₹)</label>
+                <input id="sipamt" type="number" inputMode="numeric" min="0" value={sipAmount} onChange={(e) => setSipAmount(e.target.value)} style={inputStyle} />
+                <span style={{ fontSize: 13, color: C.muted }}>{monthly > 0 ? `${rupees(monthly)} every month` : "Enter an amount"}</span>
+              </>
+            )}
+            {isTarget && (
+              <>
+                <label htmlFor="siptgt" style={{ fontSize: 15, fontWeight: 700 }}>Target amount (₹)</label>
+                {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>लक्ष्य रकम लिखिए, ज़रूरी SIP अपने-आप दिखेगी</span>}
+                <input id="siptgt" type="number" inputMode="numeric" min="0" placeholder="e.g. 5000000" value={sipTarget} onChange={(e) => setSipTarget(e.target.value)} style={inputStyle} />
+                <span style={{ fontSize: 13, color: C.muted }}>{tgt > 0 ? rupees(tgt) : "Enter your target"}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 14px", borderRadius: 16, background: C.mint }}>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>Monthly SIP needed{stepUp > 0 ? " (first year)" : ""}</span>
+                  <span style={{ fontFamily: DISP, fontSize: 24, fontWeight: 800 }}>{monthly > 0 ? rupees(monthly) : "—"}</span>
+                  <span style={{ fontSize: 12 }}>Worked out at average returns{ms.valid ? "" : ". Make your mix add up to 100% first"}</span>
+                </div>
+              </>
+            )}
             <span style={{ fontSize: 15, fontWeight: 700 }}>For how long?</span>
             {periodStepper(sipPeriodIdx, setSipPeriodIdx)}
             <span style={{ fontSize: 15, fontWeight: 700 }}>Increase SIP every year by</span>
@@ -576,14 +598,9 @@ export default function App() {
             </div>
             {!ms.valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
             {ms.valid && scenarioRows(scen)}
-          </section>
-          <section style={card}>
-            <label htmlFor="siptgt" style={{ fontSize: 15, fontWeight: 700 }}>Have a target? (optional)</label>
-            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>लक्ष्य रकम लिखिए, ज़रूरी SIP जानिए</span>}
-            <input id="siptgt" type="number" inputMode="numeric" min="0" placeholder="e.g. 2500000" value={sipTarget} onChange={(e) => setSipTarget(e.target.value)} style={inputStyle} />
-            {need && (
-              <p style={{ margin: 0, padding: "12px 14px", borderRadius: 16, background: C.mint, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>
-                To reach {rupees(tgt)} in {periodLabel(years)}{stepUp > 0 ? ` with a ${stepUp}% yearly step-up` : ""}, start with about {rupees(need.avg)} a month at average returns ({rupees(need.weak)} a month if markets are weak).
+            {ms.valid && isTarget && tgt > 0 && scen[0].value < tgt && (
+              <p style={{ margin: 0, padding: "10px 12px", borderRadius: 14, background: C.yellow, fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>
+                In weak markets you could fall short by about {rupees(tgt - scen[0].value)}.
               </p>
             )}
           </section>
