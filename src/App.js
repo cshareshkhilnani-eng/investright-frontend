@@ -98,9 +98,22 @@ function swpCorpusNeeded(monthly, annualPct, years, risePct) {
 }
 
 const SWP_PREFS = {
-  steady: { label: "Steady income first", b2: "Short-duration debt or conservative hybrid funds", b3: "Balanced advantage or equity savings funds" },
-  balance: { label: "Income and growth", b2: "Conservative hybrid or equity savings funds", b3: "Balanced advantage or multi-asset funds" },
-  growth: { label: "Growth first", b2: "Short-duration debt or balanced advantage funds", b3: "Large-cap, index or flexi-cap funds" },
+  steady: { label: "Steady income first", b2: "Short-duration debt or conservative hybrid funds", b3: "Balanced advantage or equity savings funds", b2c: ["shortDebt", "consHybrid"], b3c: ["baf", "eqSavings"] },
+  balance: { label: "Income and growth", b2: "Conservative hybrid or equity savings funds", b3: "Balanced advantage or multi-asset funds", b2c: ["consHybrid", "eqSavings"], b3c: ["baf", "multiAsset"] },
+  growth: { label: "Growth first", b2: "Short-duration debt or balanced advantage funds", b3: "Large-cap, index or flexi-cap funds", b2c: ["shortDebt", "baf"], b3c: ["growth"] },
+};
+
+// Schemes to consider (distributor list; verify current names and data before use)
+const ARN = "ARN-290492";
+const SCHEMES = {
+  liquid: ["Liquid", ["HDFC Liquid Fund", "ICICI Prudential Liquid Fund", "SBI Liquid Fund"]],
+  arbitrage: ["Arbitrage", ["Kotak Arbitrage Fund", "ICICI Prudential Equity Arbitrage Fund", "SBI Arbitrage Opportunities Fund"]],
+  shortDebt: ["Short-duration debt", ["HDFC Short Term Debt Fund", "ICICI Prudential Short Term Fund", "Kotak Bond Short Term Fund"]],
+  consHybrid: ["Conservative hybrid", ["ICICI Prudential Regular Savings Fund", "SBI Conservative Hybrid Fund", "Kotak Debt Hybrid Fund"]],
+  baf: ["Balanced advantage", ["ICICI Prudential Balanced Advantage Fund", "HDFC Balanced Advantage Fund", "Kotak Balanced Advantage Fund"]],
+  eqSavings: ["Equity savings", ["Kotak Equity Savings Fund", "HDFC Equity Savings Fund", "SBI Equity Savings Fund"]],
+  multiAsset: ["Multi-asset", ["ICICI Prudential Multi-Asset Fund", "SBI Multi Asset Allocation Fund", "HDFC Multi-Asset Fund"]],
+  growth: ["Large-cap, index and flexi-cap", ["UTI Nifty 50 Index Fund", "HDFC Index Fund – Nifty 50 Plan", "Parag Parikh Flexi Cap Fund", "HDFC Flexi Cap Fund"]],
 };
 
 function rupees(v) {
@@ -661,13 +674,22 @@ export default function App() {
     const b1 = Math.min(pot, W * 24);
     const b2 = Math.min(pot - b1, W * 36);
     const b3 = Math.max(0, pot - b1 - b2);
-    const bucket = (title, amt, what, col) => (
-      <div key={title} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 14px", borderRadius: 16, background: col }}>
+    const bucket = (title, amt, what, col, cats) => (
+      <div key={title} style={{ display: "flex", flexDirection: "column", gap: 6, padding: "12px 14px", borderRadius: 16, background: col }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
           <span style={{ fontFamily: DISP, fontSize: 17, fontWeight: 800 }}>{rupees(amt)}</span>
         </div>
         <span style={{ fontSize: 13, lineHeight: 1.5 }}>{what}</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "10px 12px", borderRadius: 12, background: "#FFFFFF" }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: C.muted }}>Schemes to consider</span>
+          {cats.map((c) => (
+            <div key={c} style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{SCHEMES[c][0]}</span>
+              <span style={{ fontSize: 13, lineHeight: 1.5 }}>{SCHEMES[c][1].join(" · ")}</span>
+            </div>
+          ))}
+        </div>
       </div>
     );
     body = (
@@ -743,14 +765,17 @@ export default function App() {
             </div>
             {pot > 0 && W > 0 ? (
               <>
-                {bucket("Bucket 1: next 2 years of income", b1, "Liquid or arbitrage funds. Your monthly withdrawals come from here.", C.yellow)}
-                {b2 > 0 && bucket("Bucket 2: years 3 to 5", b2, pref.b2, C.blue)}
-                {b3 > 0 && bucket("Bucket 3: long-term growth", b3, pref.b3, C.violet)}
+                {bucket("Bucket 1: next 2 years of income", b1, "Liquid or arbitrage funds. Your monthly withdrawals come from here.", C.yellow, ["liquid", "arbitrage"])}
+                {b2 > 0 && bucket("Bucket 2: years 3 to 5", b2, pref.b2, C.blue, pref.b2c)}
+                {b3 > 0 && bucket("Bucket 3: long-term growth", b3, pref.b3, C.violet, pref.b3c)}
                 <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: C.muted }}>Every year or two, move money from Bucket 3 and Bucket 2 into Bucket 1 to refill it.</p>
+                <p style={{ margin: 0, padding: "10px 12px", borderRadius: 14, background: C.soft, fontSize: 12, lineHeight: 1.5 }}>
+                  Distributed by Tarakkii Wealth Management, AMFI {ARN}. Schemes are shown for consideration, not as a recommendation. Mutual fund investments are subject to market risks, read all scheme related documents carefully.
+                </p>
               </>
             ) : <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Enter the amounts above to see the buckets.</p>}
           </section>
-          <Disclaimer text="Illustration using assumed yearly return ranges, withdrawals at the start of each month and yearly rebalancing. Fund categories are for education; choose specific funds yourself or with a registered professional. Not investment advice." />
+          <Disclaimer text="Illustration using assumed yearly return ranges, withdrawals at the start of each month and yearly rebalancing. Check each scheme's latest factsheet before investing. Not investment advice." />
         </main>
       </>
     );
