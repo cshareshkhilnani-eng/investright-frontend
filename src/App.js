@@ -58,6 +58,21 @@ function blendedRate(mix, rates) {
   return mix.reduce((sum, w, i) => sum + (w * rates[i]) / 100, 0);
 }
 
+// SIP: invested at the start of each month; step-up raises the SIP once a year
+function sipFuture(monthly, annualPct, years, stepUpPct) {
+  const r = Math.pow(1 + annualPct / 100, 1 / 12) - 1;
+  const months = Math.round(years * 12);
+  let value = 0;
+  let invested = 0;
+  let p = monthly;
+  for (let m = 0; m < months; m += 1) {
+    if (m > 0 && m % 12 === 0) p *= 1 + stepUpPct / 100;
+    value = (value + p) * (1 + r);
+    invested += p;
+  }
+  return { value, invested };
+}
+
 function rupees(v) {
   return "₹" + Math.round(v).toLocaleString("en-IN");
 }
@@ -164,6 +179,10 @@ export default function App() {
   const [target, setTarget] = useState("");
   const [mixMode, setMixMode] = useState("suggested");
   const [custom, setCustom] = useState([55, 25, 10, 10]);
+  const [sipAmount, setSipAmount] = useState("10000");
+  const [sipPeriodIdx, setSipPeriodIdx] = useState(9);
+  const [stepUp, setStepUp] = useState(0);
+  const [sipTarget, setSipTarget] = useState("");
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -176,10 +195,11 @@ export default function App() {
 
   const startRisk = () => { setStep(0); setAnswers({}); setResult(null); setError(""); setScreen("risk"); };
   const openSoon = (name) => { setSoonName(name); setScreen("soon"); };
-  const openPlanner = () => {
+  const openTool = (name) => {
     if (result && PROFILES[result.profile_level]) setPlanProfile(result.profile_level);
-    setScreen("lumpsum");
+    setScreen(name);
   };
+  const openPlanner = () => openTool("lumpsum");
 
   const onTab = (id) => {
     if (id === "home") setScreen("home");
@@ -207,7 +227,7 @@ export default function App() {
   const picked = q ? answers[q.key] : undefined;
   const activeTab = screen === "home" ? "home"
     : screen === "risk" || screen === "result" ? "risk"
-    : screen === "lumpsum" ? "tools"
+    : screen === "lumpsum" || screen === "sip" ? "tools"
     : soonName === "Goal Planner" ? "goals" : soonName === "Learn" ? "learn" : "tools";
 
   const header = (title, onBack, right) => (
@@ -237,6 +257,106 @@ export default function App() {
       {label}
     </button>
   );
+
+  const periodStepper = (idx, setIdx) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <button aria-label="Shorter period" onClick={() => setIdx(Math.max(0, idx - 1))} style={{ ...btnReset, width: 48, height: 48, borderRadius: 24, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="minus" sw={2.6} /></button>
+      <span style={{ fontFamily: DISP, fontSize: 22, fontWeight: 800 }}>{periodLabel(PERIODS[idx])}</span>
+      <button aria-label="Longer period" onClick={() => setIdx(Math.min(PERIODS.length - 1, idx + 1))} style={{ ...btnReset, width: 48, height: 48, borderRadius: 24, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" sw={2.6} /></button>
+    </div>
+  );
+
+  const profileChips = () => (
+    <>
+      <span style={{ fontSize: 15, fontWeight: 700 }}>Your risk profile</span>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {chip("Conservative", planProfile === "Conservative", () => setPlanProfile("Conservative"), C.blue)}
+        {chip("Balanced", planProfile === "Balanced", () => setPlanProfile("Balanced"), C.mint)}
+        {chip("Aggressive", planProfile === "Aggressive", () => setPlanProfile("Aggressive"), C.orange)}
+      </div>
+      {!result && <button onClick={startRisk} style={{ ...btnReset, alignSelf: "flex-start", background: "transparent", padding: 0, color: C.purple, fontSize: 14, fontWeight: 700, textDecoration: "underline" }}>Not sure? Take the Risk Profiler</button>}
+    </>
+  );
+
+  // Shared mix section for the Lump Sum Planner and SIP Calculator
+  const mixSection = (years) => {
+    const suggested = mixFor(years, planProfile);
+    const isCustom = mixMode === "custom";
+    const total = custom.reduce((a, b) => a + b, 0);
+    const valid = !isCustom || total === 100;
+    const mix = isCustom ? custom : suggested.mix;
+    const warnings = [];
+    if (isCustom && years < 3 && custom[0] > 0) {
+      warnings.push("Equity can fall 30–50% within months. Risky for money needed soon.");
+    } else if (isCustom && custom[0] > suggested.mix[0]) {
+      warnings.push(`This is more equity than suggested for a ${planProfile} investor over ${periodLabel(years)} (suggested: ${suggested.mix[0]}%).`);
+    }
+    const stepMix = (i, d) => {
+      const next = [...custom];
+      next[i] = Math.min(100, Math.max(0, next[i] + d));
+      setCustom(next);
+    };
+    const node = (
+      <section style={card}>
+        <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>Mix by asset class</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {chip("Suggested", !isCustom, () => setMixMode("suggested"), C.yellow)}
+          {chip("My own mix", isCustom, () => { if (!isCustom) setCustom(suggested.mix); setMixMode("custom"); }, C.violet)}
+        </div>
+        {!isCustom && (
+          <>
+            <span style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: 12, background: C.yellow, fontSize: 12, fontWeight: 700 }}>{suggested.band}</span>
+            {years < 3 && (
+              <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: C.muted }}>
+                For periods under 3 years, the mix stays safe for every profile. Your profile applies from 3 years onward.
+                {showHindi && <span style={{ display: "block", fontFamily: HI }}>3 साल से कम के लिए हर प्रोफ़ाइल का मिश्रण सुरक्षित रहता है।</span>}
+              </p>
+            )}
+          </>
+        )}
+        {isCustom && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {ASSETS.map(([name, hi, col], i) => (
+              <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
+                  <span style={{ width: 14, height: 14, borderRadius: 7, background: col }} />
+                  {name}{showHindi ? <span style={{ fontFamily: HI, fontWeight: 500, fontSize: 13, color: C.muted }}>{hi}</span> : null}
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button aria-label={`Less ${name}`} onClick={() => stepMix(i, -5)} style={{ ...btnReset, width: 44, height: 44, borderRadius: 22, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="minus" sw={2.6} /></button>
+                  <span style={{ width: 52, textAlign: "center", fontFamily: DISP, fontSize: 18, fontWeight: 800 }}>{custom[i]}%</span>
+                  <button aria-label={`More ${name}`} onClick={() => stepMix(i, 5)} style={{ ...btnReset, width: 44, height: 44, borderRadius: 22, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" sw={2.6} /></button>
+                </span>
+              </div>
+            ))}
+            <span style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 12, background: total === 100 ? C.mint : C.pink, fontSize: 13, fontWeight: 700 }}>
+              Total: {total}%{total === 100 ? "" : ` (must be 100%, ${total > 100 ? "reduce" : "add"} ${Math.abs(100 - total)}%)`}
+            </span>
+            {warnings.map((w) => (
+              <p key={w} style={{ margin: 0, padding: "10px 12px", borderRadius: 14, background: C.yellow, fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>{w}</p>
+            ))}
+          </div>
+        )}
+        {valid && <MixBar mix={mix} showHindi={showHindi} />}
+      </section>
+    );
+    return { mix, valid, node };
+  };
+
+  const scenarios = (mix) => [["weak", "Weak markets", C.pink], ["average", "Average", C.mint], ["strong", "Strong markets", C.blue]]
+    .map(([k, label, col]) => ({ k, label, col, r: blendedRate(mix, RATES[k]) }));
+
+  const scenarioRows = (rows) => rows.map((x) => (
+    <div key={x.k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderRadius: 16, background: x.col }}>
+      <span style={{ display: "flex", flexDirection: "column" }}>
+        <span style={{ fontSize: 14, fontWeight: 700 }}>{x.label}</span>
+        <span style={{ fontSize: 12 }}>about {x.r.toFixed(1)}% a year</span>
+      </span>
+      <span style={{ fontFamily: DISP, fontSize: 19, fontWeight: 800 }}>{rupees(x.value)}</span>
+    </div>
+  ));
+
+  const inputStyle = { height: 52, padding: "0 16px", borderRadius: 16, border: `2px solid ${C.line}`, fontSize: 20, fontWeight: 700, fontFamily: DISP, color: C.ink, boxSizing: "border-box", width: "100%" };
 
   let body = null;
 
@@ -269,7 +389,7 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12 }}>
             {tile("Lump Sum Planner", "एकमुश्त निवेश योजना", "wallet", C.amber, openPlanner, true)}
             {tile("Risk Profiler", "रिस्क प्रोफ़ाइल", "gauge", C.violet, startRisk)}
-            {tile("SIP Calculator", "SIP कैलकुलेटर", "calc", C.orange, () => openSoon("SIP Calculator"))}
+            {tile("SIP Calculator", "SIP कैलकुलेटर", "calc", C.orange, () => openTool("sip"))}
             {tile("SWP Planner", "रिटायरमेंट आय", "rupee", C.mint, () => openSoon("SWP Planner"))}
             {tile("Goal Planner", "लक्ष्य योजना", "target", C.pink, () => openSoon("Goal Planner"))}
             {tile("Crash Scenarios", "मार्केट क्रैश", "chart", C.blue, () => openSoon("Crash Scenarios"))}
@@ -369,29 +489,11 @@ export default function App() {
   } else if (screen === "lumpsum") {
     const amt = Math.max(0, Number(amount) || 0);
     const years = PERIODS[periodIdx];
-    const suggested = mixFor(years, planProfile);
-    const isCustom = mixMode === "custom";
-    const total = custom.reduce((a, b) => a + b, 0);
-    const valid = !isCustom || total === 100;
-    const mix = isCustom ? custom : suggested.mix;
-    const warnings = [];
-    if (isCustom && years < 3 && custom[0] > 0) {
-      warnings.push("Equity can fall 30–50% within months. Risky for money needed soon.");
-    } else if (isCustom && custom[0] > suggested.mix[0]) {
-      warnings.push(`This is more equity than suggested for a ${planProfile} investor over ${periodLabel(years)} (suggested: ${suggested.mix[0]}%).`);
-    }
-    const stepMix = (i, d) => {
-      const next = [...custom];
-      next[i] = Math.min(100, Math.max(0, next[i] + d));
-      setCustom(next);
-    };
-    const scen = [["weak", "Weak markets", C.pink], ["average", "Average", C.mint], ["strong", "Strong markets", C.blue]].map(([k, label, col]) => {
-      const r = blendedRate(mix, RATES[k]);
-      return { k, label, col, r, value: amt * Math.pow(1 + r / 100, years) };
-    });
+    const ms = mixSection(years);
+    const scen = scenarios(ms.mix).map((x) => ({ ...x, value: amt * Math.pow(1 + x.r / 100, years) }));
     const tgt = Number(target) || 0;
     let check = null;
-    if (valid && amt > 0 && tgt > 0) {
+    if (ms.valid && amt > 0 && tgt > 0) {
       if (tgt <= amt) {
         check = { col: C.line, text: "Your target is not more than your amount. Enter a higher target." };
       } else {
@@ -413,86 +515,79 @@ export default function App() {
           {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>एकमुश्त रकम कहाँ और कैसे लगाएँ, समझिए</span>}
           <section style={card}>
             <label htmlFor="amt" style={{ fontSize: 15, fontWeight: 700 }}>Amount to invest (₹)</label>
-            <input id="amt" type="number" inputMode="numeric" min="0" value={amount} onChange={(e) => setAmount(e.target.value)}
-              style={{ height: 52, padding: "0 16px", borderRadius: 16, border: `2px solid ${C.line}`, fontSize: 20, fontWeight: 700, fontFamily: DISP, color: C.ink, boxSizing: "border-box", width: "100%" }} />
+            <input id="amt" type="number" inputMode="numeric" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} />
             <span style={{ fontSize: 13, color: C.muted }}>{amt > 0 ? rupees(amt) : "Enter an amount"}</span>
             <span style={{ fontSize: 15, fontWeight: 700 }}>For how long?</span>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-              <button aria-label="Shorter period" onClick={() => setPeriodIdx(Math.max(0, periodIdx - 1))} style={{ ...btnReset, width: 48, height: 48, borderRadius: 24, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="minus" sw={2.6} /></button>
-              <span style={{ fontFamily: DISP, fontSize: 22, fontWeight: 800 }}>{periodLabel(years)}</span>
-              <button aria-label="Longer period" onClick={() => setPeriodIdx(Math.min(PERIODS.length - 1, periodIdx + 1))} style={{ ...btnReset, width: 48, height: 48, borderRadius: 24, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" sw={2.6} /></button>
-            </div>
-            <span style={{ fontSize: 15, fontWeight: 700 }}>Your risk profile</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {chip("Conservative", planProfile === "Conservative", () => setPlanProfile("Conservative"), C.blue)}
-              {chip("Balanced", planProfile === "Balanced", () => setPlanProfile("Balanced"), C.mint)}
-              {chip("Aggressive", planProfile === "Aggressive", () => setPlanProfile("Aggressive"), C.orange)}
-            </div>
-            {!result && <button onClick={startRisk} style={{ ...btnReset, alignSelf: "flex-start", background: "transparent", padding: 0, color: C.purple, fontSize: 14, fontWeight: 700, textDecoration: "underline" }}>Not sure? Take the Risk Profiler</button>}
+            {periodStepper(periodIdx, setPeriodIdx)}
+            {profileChips()}
           </section>
-          <section style={card}>
-            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>Mix by asset class</h2>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {chip("Suggested", !isCustom, () => setMixMode("suggested"), C.yellow)}
-              {chip("My own mix", isCustom, () => { if (!isCustom) setCustom(suggested.mix); setMixMode("custom"); }, C.violet)}
-            </div>
-            {!isCustom && (
-              <>
-                <span style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: 12, background: C.yellow, fontSize: 12, fontWeight: 700 }}>{suggested.band}</span>
-                {years < 3 && (
-                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: C.muted }}>
-                    For periods under 3 years, the mix stays safe for every profile. Your profile applies from 3 years onward.
-                    {showHindi && <span style={{ display: "block", fontFamily: HI }}>3 साल से कम के लिए हर प्रोफ़ाइल का मिश्रण सुरक्षित रहता है।</span>}
-                  </p>
-                )}
-              </>
-            )}
-            {isCustom && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {ASSETS.map(([name, hi, col], i) => (
-                  <div key={name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, fontWeight: 700 }}>
-                      <span style={{ width: 14, height: 14, borderRadius: 7, background: col }} />
-                      {name}{showHindi ? <span style={{ fontFamily: HI, fontWeight: 500, fontSize: 13, color: C.muted }}>{hi}</span> : null}
-                    </span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button aria-label={`Less ${name}`} onClick={() => stepMix(i, -5)} style={{ ...btnReset, width: 44, height: 44, borderRadius: 22, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="minus" sw={2.6} /></button>
-                      <span style={{ width: 52, textAlign: "center", fontFamily: DISP, fontSize: 18, fontWeight: 800 }}>{custom[i]}%</span>
-                      <button aria-label={`More ${name}`} onClick={() => stepMix(i, 5)} style={{ ...btnReset, width: 44, height: 44, borderRadius: 22, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" sw={2.6} /></button>
-                    </span>
-                  </div>
-                ))}
-                <span style={{ alignSelf: "flex-start", padding: "6px 12px", borderRadius: 12, background: total === 100 ? C.mint : C.pink, fontSize: 13, fontWeight: 700 }}>
-                  Total: {total}%{total === 100 ? "" : ` (must be 100%, ${total > 100 ? "reduce" : "add"} ${Math.abs(100 - total)}%)`}
-                </span>
-                {warnings.map((w) => (
-                  <p key={w} style={{ margin: 0, padding: "10px 12px", borderRadius: 14, background: C.yellow, fontSize: 13, fontWeight: 700, lineHeight: 1.5 }}>{w}</p>
-                ))}
-              </div>
-            )}
-            {valid && <MixBar mix={mix} showHindi={showHindi} />}
-          </section>
+          {ms.node}
           <section style={card}>
             <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>What {amt > 0 ? rupees(amt) : "your money"} could become in {periodLabel(years)}</h2>
-            {!valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
-            {valid && scen.map((x) => (
-              <div key={x.k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderRadius: 16, background: x.col }}>
-                <span style={{ display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>{x.label}</span>
-                  <span style={{ fontSize: 12 }}>about {x.r.toFixed(1)}% a year</span>
-                </span>
-                <span style={{ fontFamily: DISP, fontSize: 19, fontWeight: 800 }}>{rupees(x.value)}</span>
-              </div>
-            ))}
+            {!ms.valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
+            {ms.valid && scenarioRows(scen)}
           </section>
           <section style={card}>
             <label htmlFor="tgt" style={{ fontSize: 15, fontWeight: 700 }}>Have a target? (optional)</label>
             {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>आप कितनी रकम चाहते हैं?</span>}
-            <input id="tgt" type="number" inputMode="numeric" min="0" placeholder="e.g. 150000" value={target} onChange={(e) => setTarget(e.target.value)}
-              style={{ height: 52, padding: "0 16px", borderRadius: 16, border: `2px solid ${C.line}`, fontSize: 20, fontWeight: 700, fontFamily: DISP, color: C.ink, boxSizing: "border-box", width: "100%" }} />
+            <input id="tgt" type="number" inputMode="numeric" min="0" placeholder="e.g. 150000" value={target} onChange={(e) => setTarget(e.target.value)} style={inputStyle} />
             {check && <p style={{ margin: 0, padding: "12px 14px", borderRadius: 16, background: check.col, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>{check.text}</p>}
           </section>
           <Disclaimer text="Illustration using assumed yearly return ranges and yearly rebalancing. Past returns do not guarantee future returns. Not investment advice." />
+        </main>
+      </>
+    );
+  } else if (screen === "sip") {
+    const monthly = Math.max(0, Number(sipAmount) || 0);
+    const years = PERIODS[sipPeriodIdx];
+    const ms = mixSection(years);
+    const invested = sipFuture(monthly, 0, years, stepUp).invested;
+    const scen = scenarios(ms.mix).map((x) => ({ ...x, value: sipFuture(monthly, x.r, years, stepUp).value }));
+    const tgt = Number(sipTarget) || 0;
+    let need = null;
+    if (ms.valid && tgt > 0) {
+      const perRupee = (r) => sipFuture(1, r, years, stepUp).value;
+      need = { avg: tgt / perRupee(scen[1].r), weak: tgt / perRupee(scen[0].r) };
+    }
+    body = (
+      <>
+        {header("SIP Calculator", () => setScreen("home"), <span />)}
+        <main style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, padding: "8px 20px 16px" }}>
+          {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>हर महीने निवेश से कितना बनेगा, समझिए</span>}
+          <section style={card}>
+            <label htmlFor="sipamt" style={{ fontSize: 15, fontWeight: 700 }}>Monthly SIP (₹)</label>
+            <input id="sipamt" type="number" inputMode="numeric" min="0" value={sipAmount} onChange={(e) => setSipAmount(e.target.value)} style={inputStyle} />
+            <span style={{ fontSize: 13, color: C.muted }}>{monthly > 0 ? `${rupees(monthly)} every month` : "Enter an amount"}</span>
+            <span style={{ fontSize: 15, fontWeight: 700 }}>For how long?</span>
+            {periodStepper(sipPeriodIdx, setSipPeriodIdx)}
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Increase SIP every year by</span>
+            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>हर साल SIP बढ़ाएँ (स्टेप-अप)</span>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {[0, 5, 10, 15].map((s) => chip(s === 0 ? "No step-up" : `${s}%`, stepUp === s, () => setStepUp(s), C.orange))}
+            </div>
+            {profileChips()}
+          </section>
+          {ms.node}
+          <section style={card}>
+            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>After {periodLabel(years)}</h2>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderRadius: 16, background: C.soft }}>
+              <span style={{ fontSize: 14, fontWeight: 700 }}>Total you invest</span>
+              <span style={{ fontFamily: DISP, fontSize: 19, fontWeight: 800 }}>{rupees(invested)}</span>
+            </div>
+            {!ms.valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
+            {ms.valid && scenarioRows(scen)}
+          </section>
+          <section style={card}>
+            <label htmlFor="siptgt" style={{ fontSize: 15, fontWeight: 700 }}>Have a target? (optional)</label>
+            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>लक्ष्य रकम लिखिए, ज़रूरी SIP जानिए</span>}
+            <input id="siptgt" type="number" inputMode="numeric" min="0" placeholder="e.g. 2500000" value={sipTarget} onChange={(e) => setSipTarget(e.target.value)} style={inputStyle} />
+            {need && (
+              <p style={{ margin: 0, padding: "12px 14px", borderRadius: 16, background: C.mint, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>
+                To reach {rupees(tgt)} in {periodLabel(years)}{stepUp > 0 ? ` with a ${stepUp}% yearly step-up` : ""}, start with about {rupees(need.avg)} a month at average returns ({rupees(need.weak)} a month if markets are weak).
+              </p>
+            )}
+          </section>
+          <Disclaimer text="Illustration using assumed yearly return ranges, monthly investing at the start of each month and yearly rebalancing. Past returns do not guarantee future returns. Not investment advice." />
         </main>
       </>
     );
