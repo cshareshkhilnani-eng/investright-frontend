@@ -73,6 +73,36 @@ function sipFuture(monthly, annualPct, years, stepUpPct) {
   return { value, invested };
 }
 
+// SWP: withdraw at the start of each month, rest grows; withdrawal rises once a year
+function swpMonthsLast(corpus, monthly, annualPct, risePct, capMonths) {
+  const r = Math.pow(1 + annualPct / 100, 1 / 12) - 1;
+  let bal = corpus;
+  let w = monthly;
+  for (let m = 0; m < capMonths; m += 1) {
+    if (m > 0 && m % 12 === 0) w *= 1 + risePct / 100;
+    if (bal < w) return m + bal / w;
+    bal = (bal - w) * (1 + r);
+  }
+  return null;
+}
+
+function swpCorpusNeeded(monthly, annualPct, years, risePct) {
+  const r = Math.pow(1 + annualPct / 100, 1 / 12) - 1;
+  let pv = 0;
+  let w = monthly;
+  for (let m = 0; m < Math.round(years * 12); m += 1) {
+    if (m > 0 && m % 12 === 0) w *= 1 + risePct / 100;
+    pv += w / Math.pow(1 + r, m);
+  }
+  return pv;
+}
+
+const SWP_PREFS = {
+  steady: { label: "Steady income first", b2: "Short-duration debt or conservative hybrid funds", b3: "Balanced advantage or equity savings funds" },
+  balance: { label: "Income and growth", b2: "Conservative hybrid or equity savings funds", b3: "Balanced advantage or multi-asset funds" },
+  growth: { label: "Growth first", b2: "Short-duration debt or balanced advantage funds", b3: "Large-cap, index or flexi-cap funds" },
+};
+
 function rupees(v) {
   return "₹" + Math.round(v).toLocaleString("en-IN");
 }
@@ -184,6 +214,12 @@ export default function App() {
   const [stepUp, setStepUp] = useState(0);
   const [sipTarget, setSipTarget] = useState("");
   const [sipMode, setSipMode] = useState("amount");
+  const [swpMode, setSwpMode] = useState("corpus");
+  const [corpus, setCorpus] = useState("5000000");
+  const [withdrawal, setWithdrawal] = useState("30000");
+  const [rise, setRise] = useState(0);
+  const [swpYearsIdx, setSwpYearsIdx] = useState(13);
+  const [swpPref, setSwpPref] = useState("balance");
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -228,7 +264,7 @@ export default function App() {
   const picked = q ? answers[q.key] : undefined;
   const activeTab = screen === "home" ? "home"
     : screen === "risk" || screen === "result" ? "risk"
-    : screen === "lumpsum" || screen === "sip" ? "tools"
+    : screen === "lumpsum" || screen === "sip" || screen === "swp" ? "tools"
     : soonName === "Goal Planner" ? "goals" : soonName === "Learn" ? "learn" : "tools";
 
   const header = (title, onBack, right) => (
@@ -391,7 +427,7 @@ export default function App() {
             {tile("Lump Sum Planner", "एकमुश्त निवेश योजना", "wallet", C.amber, openPlanner, true)}
             {tile("Risk Profiler", "रिस्क प्रोफ़ाइल", "gauge", C.violet, startRisk)}
             {tile("SIP Calculator", "SIP कैलकुलेटर", "calc", C.orange, () => openTool("sip"))}
-            {tile("SWP Planner", "रिटायरमेंट आय", "rupee", C.mint, () => openSoon("SWP Planner"))}
+            {tile("SWP Planner", "रिटायरमेंट आय", "rupee", C.mint, () => openTool("swp"))}
             {tile("Goal Planner", "लक्ष्य योजना", "target", C.pink, () => openSoon("Goal Planner"))}
             {tile("Crash Scenarios", "मार्केट क्रैश", "chart", C.blue, () => openSoon("Crash Scenarios"))}
             {tile("Learn", "सीखिए", "book", C.yellow, () => openSoon("Learn"))}
@@ -605,6 +641,116 @@ export default function App() {
             )}
           </section>
           <Disclaimer text="Illustration using assumed yearly return ranges, monthly investing at the start of each month and yearly rebalancing. Past returns do not guarantee future returns. Not investment advice." />
+        </main>
+      </>
+    );
+  } else if (screen === "swp") {
+    const ms = mixSection(25);
+    const base = scenarios(ms.mix);
+    const isNeed = swpMode === "need";
+    const W = Math.max(0, Number(withdrawal) || 0);
+    const needYears = PERIODS[swpYearsIdx];
+    const neededAvg = ms.valid && W > 0 ? swpCorpusNeeded(W, base[1].r, needYears, rise) : 0;
+    const neededWeak = ms.valid && W > 0 ? swpCorpusNeeded(W, base[0].r, needYears, rise) : 0;
+    const pot = isNeed ? neededAvg : Math.max(0, Number(corpus) || 0);
+    const lastRows = base.map((x) => {
+      const m = pot > 0 && W > 0 ? swpMonthsLast(pot, W, x.r, rise, 360) : null;
+      return { ...x, text: pot > 0 && W > 0 ? (m === null ? "30+ years" : `about ${(m / 12).toFixed(1)} years`) : "—" };
+    });
+    const pref = SWP_PREFS[swpPref];
+    const b1 = Math.min(pot, W * 24);
+    const b2 = Math.min(pot - b1, W * 36);
+    const b3 = Math.max(0, pot - b1 - b2);
+    const bucket = (title, amt, what, col) => (
+      <div key={title} style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 14px", borderRadius: 16, background: col }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
+          <span style={{ fontFamily: DISP, fontSize: 17, fontWeight: 800 }}>{rupees(amt)}</span>
+        </div>
+        <span style={{ fontSize: 13, lineHeight: 1.5 }}>{what}</span>
+      </div>
+    );
+    body = (
+      <>
+        {header("SWP Planner", () => setScreen("home"), <span />)}
+        <main style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, padding: "8px 20px 16px" }}>
+          {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>हर महीने निकासी से पैसा कितने साल चलेगा, समझिए</span>}
+          <section style={card}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {chip("I have a corpus", !isNeed, () => setSwpMode("corpus"), C.mint)}
+              {chip("I need an income", isNeed, () => setSwpMode("need"), C.orange)}
+            </div>
+            {!isNeed && (
+              <>
+                <label htmlFor="corpus" style={{ fontSize: 15, fontWeight: 700 }}>Money saved (₹)</label>
+                <input id="corpus" type="number" inputMode="numeric" min="0" value={corpus} onChange={(e) => setCorpus(e.target.value)} style={inputStyle} />
+                <span style={{ fontSize: 13, color: C.muted }}>{pot > 0 ? rupees(pot) : "Enter an amount"}</span>
+              </>
+            )}
+            <label htmlFor="wd" style={{ fontSize: 15, fontWeight: 700 }}>Monthly withdrawal (₹)</label>
+            <input id="wd" type="number" inputMode="numeric" min="0" value={withdrawal} onChange={(e) => setWithdrawal(e.target.value)} style={inputStyle} />
+            <span style={{ fontSize: 13, color: C.muted }}>{W > 0 ? `${rupees(W)} every month` : "Enter an amount"}</span>
+            {isNeed && (
+              <>
+                <span style={{ fontSize: 15, fontWeight: 700 }}>For how many years?</span>
+                {periodStepper(swpYearsIdx, setSwpYearsIdx)}
+              </>
+            )}
+            <span style={{ fontSize: 15, fontWeight: 700 }}>Increase withdrawal every year by</span>
+            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>महँगाई के साथ निकासी बढ़ाएँ</span>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {[0, 5, 6, 7].map((v) => chip(v === 0 ? "Fixed" : `${v}%`, rise === v, () => setRise(v), C.orange))}
+            </div>
+            {profileChips()}
+          </section>
+          {ms.node}
+          {isNeed && (
+            <section style={card}>
+              <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>Money you need to have saved</h2>
+              {!ms.valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
+              {ms.valid && (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "12px 14px", borderRadius: 16, background: C.mint }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>At average returns</span>
+                    <span style={{ fontFamily: DISP, fontSize: 24, fontWeight: 800 }}>{W > 0 ? rupees(neededAvg) : "—"}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderRadius: 16, background: C.pink }}>
+                    <span style={{ fontSize: 14, fontWeight: 700 }}>To be safe in weak markets</span>
+                    <span style={{ fontFamily: DISP, fontSize: 19, fontWeight: 800 }}>{W > 0 ? rupees(neededWeak) : "—"}</span>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+          <section style={card}>
+            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>How long {pot > 0 ? rupees(pot) : "the money"} lasts</h2>
+            {!ms.valid && <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Make your mix add up to 100% to see results.</p>}
+            {ms.valid && lastRows.map((x) => (
+              <div key={x.k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderRadius: 16, background: x.col }}>
+                <span style={{ display: "flex", flexDirection: "column" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700 }}>{x.label}</span>
+                  <span style={{ fontSize: 12 }}>about {x.r.toFixed(1)}% a year</span>
+                </span>
+                <span style={{ fontFamily: DISP, fontSize: 18, fontWeight: 800 }}>{x.text}</span>
+              </div>
+            ))}
+          </section>
+          <section style={card}>
+            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>Where to keep the money</h2>
+            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>तीन हिस्सों (बकेट) में बाँटिए</span>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {Object.entries(SWP_PREFS).map(([k, v]) => chip(v.label, swpPref === k, () => setSwpPref(k), C.yellow))}
+            </div>
+            {pot > 0 && W > 0 ? (
+              <>
+                {bucket("Bucket 1: next 2 years of income", b1, "Liquid or arbitrage funds. Your monthly withdrawals come from here.", C.yellow)}
+                {b2 > 0 && bucket("Bucket 2: years 3 to 5", b2, pref.b2, C.blue)}
+                {b3 > 0 && bucket("Bucket 3: long-term growth", b3, pref.b3, C.violet)}
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: C.muted }}>Every year or two, move money from Bucket 3 and Bucket 2 into Bucket 1 to refill it.</p>
+              </>
+            ) : <p style={{ margin: 0, fontSize: 14, color: C.muted }}>Enter the amounts above to see the buckets.</p>}
+          </section>
+          <Disclaimer text="Illustration using assumed yearly return ranges, withdrawals at the start of each month and yearly rebalancing. Fund categories are for education; choose specific funds yourself or with a registered professional. Not investment advice." />
         </main>
       </>
     );
