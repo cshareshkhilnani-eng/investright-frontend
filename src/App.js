@@ -162,6 +162,8 @@ export default function App() {
   const [periodIdx, setPeriodIdx] = useState(5);
   const [planProfile, setPlanProfile] = useState("Balanced");
   const [target, setTarget] = useState("");
+  const [mixMode, setMixMode] = useState("suggested");
+  const [custom, setCustom] = useState([55, 25, 10, 10]);
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -348,119 +350,4 @@ export default function App() {
             <span style={{ fontSize: 14, lineHeight: 1.5 }}>{p.desc}</span>
           </section>
           <section style={{ ...card, gap: 14 }}>
-            {bar("Risk capacity", "What your finances can absorb", result.risk_capacity, C.violet)}
-            {bar("Risk tolerance", "What you can stomach in a crash", result.risk_tolerance, C.pink)}
-            <span style={{ padding: "8px 12px", borderRadius: 12, background: C.yellow, fontSize: 13, fontWeight: 700 }}>Your profile uses the lower score: {score}</span>
-          </section>
-          <section style={card}>
-            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>Typical long-term mix (5+ years)</h2>
-            <MixBar mix={p.mix} showHindi={showHindi} />
-          </section>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={startRisk} style={{ ...btnReset, flex: 1, height: 50, borderRadius: 25, background: C.indigo, color: "#FFFFFF", fontSize: 14, fontWeight: 700 }}>Retake test</button>
-            <button onClick={openPlanner} style={{ ...btnReset, flex: 1, height: 50, borderRadius: 25, background: C.amber, color: C.ink, fontSize: 14, fontWeight: 700 }}>Plan a lump sum</button>
-          </div>
-          <Disclaimer />
-        </main>
-      </>
-    );
-  } else if (screen === "lumpsum") {
-    const amt = Math.max(0, Number(amount) || 0);
-    const years = PERIODS[periodIdx];
-    const { mix, band } = mixFor(years, planProfile);
-    const scen = [["weak", "Weak markets", C.pink], ["average", "Average", C.mint], ["strong", "Strong markets", C.blue]].map(([k, label, col]) => {
-      const r = blendedRate(mix, RATES[k]);
-      return { k, label, col, r, value: amt * Math.pow(1 + r / 100, years) };
-    });
-    const tgt = Number(target) || 0;
-    let check = null;
-    if (amt > 0 && tgt > 0) {
-      if (tgt <= amt) {
-        check = { col: C.line, text: "Your target is not more than your amount. Enter a higher target." };
-      } else {
-        const need = (Math.pow(tgt / amt, 1 / years) - 1) * 100;
-        const [w, a, s] = scen.map((x) => x.r);
-        let verdict;
-        let col;
-        if (need <= w) { verdict = "Comfortable: reachable even in weak markets."; col = C.mint; }
-        else if (need <= a) { verdict = "Realistic for this mix in average markets."; col = C.mint; }
-        else if (need <= s) { verdict = "Possible only if markets are strong."; col = C.yellow; }
-        else { verdict = "Unlikely for this mix. Try a longer period, more money or a lower target."; col = C.pink; }
-        check = { col, text: `You need about ${need.toFixed(1)}% a year. ${verdict}` };
-      }
-    }
-    body = (
-      <>
-        {header("Lump Sum Planner", () => setScreen("home"), <span />)}
-        <main style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14, padding: "8px 20px 16px" }}>
-          {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>एकमुश्त रकम कहाँ और कैसे लगाएँ, समझिए</span>}
-          <section style={card}>
-            <label htmlFor="amt" style={{ fontSize: 15, fontWeight: 700 }}>Amount to invest (₹)</label>
-            <input id="amt" type="number" inputMode="numeric" min="0" value={amount} onChange={(e) => setAmount(e.target.value)}
-              style={{ height: 52, padding: "0 16px", borderRadius: 16, border: `2px solid ${C.line}`, fontSize: 20, fontWeight: 700, fontFamily: DISP, color: C.ink, boxSizing: "border-box", width: "100%" }} />
-            <span style={{ fontSize: 13, color: C.muted }}>{amt > 0 ? rupees(amt) : "Enter an amount"}</span>
-            <span style={{ fontSize: 15, fontWeight: 700 }}>For how long?</span>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-              <button aria-label="Shorter period" onClick={() => setPeriodIdx(Math.max(0, periodIdx - 1))} style={{ ...btnReset, width: 48, height: 48, borderRadius: 24, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="minus" sw={2.6} /></button>
-              <span style={{ fontFamily: DISP, fontSize: 22, fontWeight: 800 }}>{periodLabel(years)}</span>
-              <button aria-label="Longer period" onClick={() => setPeriodIdx(Math.min(PERIODS.length - 1, periodIdx + 1))} style={{ ...btnReset, width: 48, height: 48, borderRadius: 24, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center" }}><Icon name="plus" sw={2.6} /></button>
-            </div>
-            <span style={{ fontSize: 15, fontWeight: 700 }}>Your risk profile</span>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {chip("Conservative", planProfile === "Conservative", () => setPlanProfile("Conservative"), C.blue)}
-              {chip("Balanced", planProfile === "Balanced", () => setPlanProfile("Balanced"), C.mint)}
-              {chip("Aggressive", planProfile === "Aggressive", () => setPlanProfile("Aggressive"), C.orange)}
-            </div>
-            {!result && <button onClick={startRisk} style={{ ...btnReset, alignSelf: "flex-start", background: "transparent", padding: 0, color: C.purple, fontSize: 14, fontWeight: 700, textDecoration: "underline" }}>Not sure? Take the Risk Profiler</button>}
-          </section>
-          <section style={card}>
-            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>Suggested mix by asset class</h2>
-            <span style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: 12, background: C.yellow, fontSize: 12, fontWeight: 700 }}>{band}</span>
-            <MixBar mix={mix} showHindi={showHindi} />
-          </section>
-          <section style={card}>
-            <h2 style={{ margin: 0, fontFamily: DISP, fontSize: 16, fontWeight: 700 }}>What {amt > 0 ? rupees(amt) : "your money"} could become in {periodLabel(years)}</h2>
-            {scen.map((x) => (
-              <div key={x.k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 14px", borderRadius: 16, background: x.col }}>
-                <span style={{ display: "flex", flexDirection: "column" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700 }}>{x.label}</span>
-                  <span style={{ fontSize: 12 }}>about {x.r.toFixed(1)}% a year</span>
-                </span>
-                <span style={{ fontFamily: DISP, fontSize: 19, fontWeight: 800 }}>{rupees(x.value)}</span>
-              </div>
-            ))}
-          </section>
-          <section style={card}>
-            <label htmlFor="tgt" style={{ fontSize: 15, fontWeight: 700 }}>Have a target? (optional)</label>
-            {showHindi && <span style={{ fontFamily: HI, fontSize: 13, color: C.muted }}>आप कितनी रकम चाहते हैं?</span>}
-            <input id="tgt" type="number" inputMode="numeric" min="0" placeholder="e.g. 150000" value={target} onChange={(e) => setTarget(e.target.value)}
-              style={{ height: 52, padding: "0 16px", borderRadius: 16, border: `2px solid ${C.line}`, fontSize: 20, fontWeight: 700, fontFamily: DISP, color: C.ink, boxSizing: "border-box", width: "100%" }} />
-            {check && <p style={{ margin: 0, padding: "12px 14px", borderRadius: 16, background: check.col, fontSize: 14, fontWeight: 700, lineHeight: 1.5 }}>{check.text}</p>}
-          </section>
-          <Disclaimer text="Illustration using assumed yearly return ranges and yearly rebalancing. Past returns do not guarantee future returns. Not investment advice." />
-        </main>
-      </>
-    );
-  } else {
-    body = (
-      <>
-        {header(soonName || "Coming soon", () => setScreen("home"), <span />)}
-        <main style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, padding: 24, textAlign: "center" }}>
-          <Mark size={72} />
-          <h1 style={{ margin: 0, fontFamily: DISP, fontSize: 24, fontWeight: 800 }}>{soonName} is coming soon</h1>
-          {showHindi && <span style={{ fontFamily: HI, fontSize: 15, color: C.muted }}>जल्द आ रहा है</span>}
-          <button onClick={openPlanner} style={{ ...btnReset, height: 50, padding: "0 24px", borderRadius: 25, background: C.amber, color: C.ink, fontSize: 15, fontWeight: 700 }}>Try the Lump Sum Planner</button>
-        </main>
-      </>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100vh", display: "flex", justifyContent: "center", background: C.ground }}>
-      <div style={{ width: "100%", maxWidth: 480, minHeight: "100vh", display: "flex", flexDirection: "column", color: C.ink, fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-        {body}
-        <TabBar active={activeTab} onTab={onTab} />
-      </div>
-    </div>
-  );
-}
+            {bar("Risk
