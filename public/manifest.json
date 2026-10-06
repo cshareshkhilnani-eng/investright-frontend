@@ -1,0 +1,16 @@
+{
+  "name": "InvestRight – Plan your money",
+  "short_name": "InvestRight",
+  "description": "Simple tools to plan SIPs, lump sums, retirement income and life goals, in Hindi and English.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F3FF",
+  "theme_color": "#2B1B8F",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
